@@ -1,25 +1,133 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
+author: "Fernando Campaña"
+date: "9/17/2019"
 output: 
   html_document:
     keep_md: true
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(lattice)
+```
+
+# Course Project 1
 
 ## Loading and preprocessing the data
 
-
+```{r}
+activity <- read.csv("activity.csv")
+activity$date <- as.Date(activity$date)
+```
 
 ## What is mean total number of steps taken per day?
+```{r}
+avg_steps_day <- activity %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(avg_steps = mean(steps))
+median_steps_day <- activity %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(median_steps = median(steps))
+total_steps_day <- activity %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(total_steps = sum(steps))
+```
 
+```{r}
+mtable <- left_join(left_join(avg_steps_day, median_steps_day), total_steps_day)
+kable(mtable, caption="Average, Median and total numbers of steps per day")
+```
 
+```{r}
+hist(total_steps_day$total_steps, main = "Histogram of the total numbers of steps per day", xlab = "Number of steps", ylab = "Days")
+```
+
+The distribution looks similar to a Normal distribution.
 
 ## What is the average daily activity pattern?
+```{r}
+avg_steps_across_days <- activity %>% filter(!is.na(steps)) %>% group_by(interval) %>% summarise(avg_steps = mean(steps))
+plot(avg_steps_across_days, type = "l")
+```
 
-
+It looks to start strong but decline as time goes on.
+```{r}
+max_step <- summarise(avg_steps_across_days, max_steps = max(avg_steps))
+max_row <- filter(avg_steps_across_days, avg_steps == max_step$max_steps)
+max_row$interval
+max_row$avg_steps
+```
+The 835 interval contains the maximum number of steps (206.1698)
 
 ## Imputing missing values
+```{r}
+nas <- activity %>% filter(is.na(steps) | is.na(interval) | is.na(date))
+count(nas)
+```
+There is a total of 2304 rows with missing values.
 
+```{r}
+total <- data.frame()
+dates <- unique(as.Date(activity$date))
+for (day in dates) {
+  # Filter by date
+  filtered_by_date <- filter(activity, date == day)
+  # Get replacement value
+  na_replace_value <- filter(avg_steps_day, date == day)$avg_steps
+  if(length(na_replace_value) == 0) na_replace_value <- 0
+  # Replace value and collect into a total dataframe
+  upgraded_activity <- mutate(filtered_by_date, steps = replace_na(steps, na_replace_value))
+  total <- bind_rows(total, upgraded_activity)
+}
+```
 
+```{r}
+u_avg_steps_day <- total %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(avg_steps = mean(steps))
+u_median_steps_day <- total %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(median_steps = median(steps))
+u_total_steps_day <- total %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(total_steps = sum(steps))
+
+hist(u_total_steps_day$total_steps, main = "Histogram of the total numbers of steps per day (Replaced NAs)", xlab = "Number of steps", ylab = "Days")
+```
+
+The values differ from the first step. If we use the mean of steps per day as the replacement value and replace missing days mean with 0, we see that the distribution of values skews toward 0.
+
+```{r}
+total <- data.frame()
+intervals <- unique(activity$interval)
+for (inter in intervals) {
+  # Filter by interval
+  filtered_by_interval <- filter(activity, interval == inter)
+  # Get replacement value
+  na_replace_value <- filter(avg_steps_across_days, interval == inter)$avg_steps
+  # Replace value and collect into a total dataframe
+  upgraded_activity <- mutate(filtered_by_interval, steps = replace_na(steps, na_replace_value))
+  total <- bind_rows(total, upgraded_activity)
+}
+```
+
+```{r}
+u_avg_steps_day <- total %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(avg_steps = mean(steps))
+u_median_steps_day <- total %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(median_steps = median(steps))
+u_total_steps_day <- total %>% filter(!is.na(steps)) %>% group_by(date) %>% summarise(total_steps = sum(steps))
+
+hist(u_total_steps_day$total_steps, main = "Histogram of the total numbers of steps per day (Replaced NAs)", xlab = "Number of steps", ylab = "Days")
+```
+
+If we use the median of steps per day as the replacement for missings value, we see that the distribution of values skews toward the center.
+
+```{r}
+mtable <- left_join(left_join(u_avg_steps_day, u_median_steps_day), u_total_steps_day)
+kable(mtable, caption="Average, Median and total numbers of steps per day with input data")
+```
 
 ## Are there differences in activity patterns between weekdays and weekends?
+```{r}
+daystagged <- total %>% mutate(daytype = case_when(weekdays(date) %in% c("Saturday", "Sunday") ~ "weekend", weekdays(date) %in% c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday") ~ "weekday"))
+
+weekend <- daystagged %>% filter(daytype == "weekend") %>% group_by(interval) %>% summarise(total_steps = mean(steps), daytype = "weekend")
+
+weekday <- daystagged %>% filter(daytype == "weekday") %>% group_by(interval) %>% summarise(total_steps = mean(steps), daytype = "weekday")
+
+final <- bind_rows(weekday, weekend)
+xyplot(total_steps ~ interval|daytype, final,type='l', layout=c(1,2), xlab = "Interval" , ylab = "Average steps")
+```
+
+It seems that at first the weekdays log more more steps on average, but as time goes on it seems to be overtaken by the weekend average steps. Is curious because there are 5 weekdays and only 2 weekend days.
